@@ -10,7 +10,8 @@ def load_and_preprocess(filepath, date_col, marketcap_col, coin_name):
     - Converts 'Marketcap' to numeric, coercing errors
     - Sets 'Date' as index
     """
-    df = pd.read_csv(filepath)
+    # Use skipinitialspace=True to handle potential spaces in CSV headers
+    df = pd.read_csv(filepath, skipinitialspace=True)
 
     # Select and rename columns
     df = df[[date_col, marketcap_col]]
