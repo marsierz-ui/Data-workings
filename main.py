@@ -1,56 +1,88 @@
 import pandas as pd
 import os
-from datetime import datetime
+import matplotlib.pyplot as plt
 
-def transform_source1(df):
+def load_and_preprocess(filepath, date_col, marketcap_col, coin_name):
     """
-    Transforms the DataFrame from source1.csv to a standard format.
-    - Renames columns to 'id', 'name', 'age'.
+    Loads a CSV, preprocesses it, and returns a clean DataFrame.
+    - Selects specified date and marketcap columns
+    - Converts 'Date' to datetime and normalizes it
+    - Converts 'Marketcap' to numeric, coercing errors
+    - Sets 'Date' as index
     """
-    df = df.rename(columns={'ID': 'id', 'Name': 'name', 'Age': 'age'})
-    return df
+    df = pd.read_csv(filepath)
 
-def transform_source2(df):
-    """
-    Transforms the DataFrame from source2.csv to a standard format.
-    - Renames 'user_id' to 'id' and 'full_name' to 'name'.
-    - Calculates 'age' from 'birth_year'.
-    """
-    df = df.rename(columns={'user_id': 'id', 'full_name': 'name'})
-    current_year = datetime.now().year
-    df['age'] = current_year - df['birth_year']
-    df = df.drop(columns=['birth_year'])
+    # Select and rename columns
+    df = df[[date_col, marketcap_col]]
+    df = df.rename(columns={date_col: 'Date', marketcap_col: f'Marketcap_{coin_name}'})
+
+    # Clean data
+    # Convert date column to datetime objects and then just keep the date part
+    df['Date'] = pd.to_datetime(df['Date']).dt.date
+    df[f'Marketcap_{coin_name}'] = pd.to_numeric(df[f'Marketcap_{coin_name}'], errors='coerce')
+    df = df.dropna()
+
+    # Set index
+    df['Date'] = pd.to_datetime(df['Date'])
+    df = df.set_index('Date')
+
     return df
 
 def main():
     """
-    Main function to orchestrate the data processing pipeline.
+    Main function to load, process, and visualize gold-backed asset data.
     """
-    # Define file paths
+    # Define paths
     data_dir = 'data'
     output_dir = 'output'
-    source1_path = os.path.join(data_dir, 'source1.csv')
-    source2_path = os.path.join(data_dir, 'source2.csv')
-    output_path = os.path.join(output_dir, 'unified_data.csv')
+    os.makedirs(output_dir, exist_ok=True)
 
-    # Create output directory if it doesn't exist
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    # --- Configuration for each asset ---
+    assets = {
+        'KAU': {'file': 'kau-usd-max.csv', 'date_col': 'snapped_at', 'marketcap_col': 'market_cap'},
+        'PAXG': {'file': 'paxg-usd-max.csv', 'date_col': 'date', 'marketcap_col': 'marketcap_usd'},
+        'XAUT': {'file': 'xaut-usd-max.csv', 'date_col': 'timestamp', 'marketcap_col': 'market_cap'}
+    }
 
-    # Read and transform source1
-    df1 = pd.read_csv(source1_path)
-    df1_transformed = transform_source1(df1)
+    all_dfs = []
+    for symbol, config in assets.items():
+        filepath = os.path.join(data_dir, config['file'])
+        df = load_and_preprocess(filepath, config['date_col'], config['marketcap_col'], symbol)
+        all_dfs.append(df)
 
-    # Read and transform source2
-    df2 = pd.read_csv(source2_path)
-    df2_transformed = transform_source2(df2)
+    # Merge the dataframes on the date index
+    merged_df = pd.concat(all_dfs, axis=1, join='inner')
 
-    # Merge the transformed dataframes
-    merged_df = pd.concat([df1_transformed, df2_transformed], ignore_index=True)
+    # Calculate total market capitalization
+    market_cap_cols = [f'Marketcap_{symbol}' for symbol in assets.keys()]
+    merged_df['Total_Marketcap'] = merged_df[market_cap_cols].sum(axis=1)
 
-    # Export the unified data
-    merged_df.to_csv(output_path, index=False)
-    print(f"Data processing complete. Unified data exported to {output_path}")
+    # --- Visualization ---
+    plt.style.use('seaborn-v0_8-whitegrid')
+    fig, ax = plt.subplots(figsize=(15, 8))
+
+    # Plot individual market caps
+    for symbol in assets.keys():
+        ax.plot(merged_df.index, merged_df[f'Marketcap_{symbol}'], label=f'{symbol} Market Cap', alpha=0.7)
+
+    # Plot total market cap
+    ax.plot(merged_df.index, merged_df['Total_Marketcap'], label='Total Market Cap (All Assets)', color='black', linewidth=2, linestyle='--')
+
+    # Formatting the plot
+    ax.set_title('Gold-Backed Digital Asset Market Capitalization', fontsize=16)
+    ax.set_xlabel('Date', fontsize=12)
+    ax.set_ylabel('Market Capitalization (in USD)', fontsize=12)
+    ax.legend(fontsize=10)
+    ax.grid(True)
+
+    ax.ticklabel_format(style='sci', axis='y', scilimits=(0,0))
+    fig.autofmt_xdate()
+
+    # Save the plot
+    output_plot_path = os.path.join(output_dir, 'market_cap_visualization.png')
+    plt.savefig(output_plot_path, dpi=300, bbox_inches='tight')
+
+    print(f"Visualization saved successfully to {output_plot_path}")
 
 if __name__ == '__main__':
     main()
